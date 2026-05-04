@@ -1,17 +1,17 @@
-import {
-  View,
-  Text,
-  TextInput,
-  Pressable,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-} from "react-native";
-import { Link, useRouter, type Href } from "expo-router";
 import { useSignIn } from "@clerk/expo";
-import { useState } from "react";
-import { SafeAreaView as RNSafeAreaView } from "react-native-safe-area-context";
+import { Link, useRouter, type Href } from "expo-router";
 import { styled } from "nativewind";
+import { useState } from "react";
+import {
+    KeyboardAvoidingView,
+    Platform,
+    Pressable,
+    ScrollView,
+    Text,
+    TextInput,
+    View,
+} from "react-native";
+import { SafeAreaView as RNSafeAreaView } from "react-native-safe-area-context";
 // import { usePostHog } from 'posthog-react-native';
 
 const SafeAreaView = styled(RNSafeAreaView);
@@ -24,10 +24,12 @@ const SignIn = () => {
   const [emailAddress, setEmailAddress] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
 
   // Validation states
   const [emailTouched, setEmailTouched] = useState(false);
   const [passwordTouched, setPasswordTouched] = useState(false);
+  const [mfaCodeTouched, setMfaCodeTouched] = useState(false);
 
   // Client-side validation
   const emailValid =
@@ -82,8 +84,20 @@ const SignIn = () => {
         },
       });
     } else if (signIn.status === "needs_second_factor") {
-      // Handle MFA if needed (not implemented in this basic flow)
-      console.log("MFA required");
+      // MFA required - get available factors and send code if needed
+      const availableFactors = signIn.supportedSecondFactors;
+      const emailFactor = availableFactors.find(
+        (factor) => factor.strategy === "email_code",
+      );
+
+      if (emailFactor && !code) {
+        // Send email MFA code
+        try {
+          await signIn.mfa.sendEmailCode();
+        } catch (error) {
+          console.error("Failed to send MFA email code:", error);
+        }
+      }
     } else if (signIn.status === "needs_client_trust") {
       // Send email code for client trust verification
       const emailCodeFactor = signIn.supportedSecondFactors.find(
@@ -134,6 +148,154 @@ const SignIn = () => {
       console.error("Sign-in attempt not complete:", signIn);
     }
   };
+
+  const handleMFAVerify = async () => {
+    if (!mfaCode) return;
+
+    try {
+      const availableFactors = signIn.supportedSecondFactors;
+      const totpFactor = availableFactors.find((f) => f.strategy === "totp");
+      const emailFactor = availableFactors.find(
+        (f) => f.strategy === "email_code",
+      );
+
+      if (totpFactor) {
+        await signIn.mfa.verifyTOTP({ code: mfaCode });
+      } else if (emailFactor) {
+        await signIn.mfa.verifyEmailCode({ code: mfaCode });
+      }
+
+      if (signIn.status === "complete") {
+        await signIn.finalize({
+          navigate: ({ session, decorateUrl }) => {
+            if (session?.currentTask) {
+              console.log(session?.currentTask);
+              return;
+            }
+
+            const url = decorateUrl("/(tabs)");
+            if (url.startsWith("http")) {
+              if (typeof window !== "undefined" && window.location) {
+                window.location.href = url;
+              } else {
+                router.replace("/(tabs)" as Href);
+              }
+            } else {
+              router.replace(url as Href);
+            }
+          },
+        });
+      }
+    } catch (error) {
+      console.error("MFA verification failed:", error);
+    }
+  };
+
+  // Show MFA screen if second factor is needed
+  if (signIn.status === "needs_second_factor") {
+    const availableFactors = signIn.supportedSecondFactors;
+    const totpFactor = availableFactors.find((f) => f.strategy === "totp");
+    const emailFactor = availableFactors.find(
+      (f) => f.strategy === "email_code",
+    );
+
+    return (
+      <SafeAreaView className="auth-safe-area">
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          className="auth-screen"
+        >
+          <ScrollView
+            className="auth-scroll"
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View className="auth-content">
+              {/* Branding */}
+              <View className="auth-brand-block">
+                <View className="auth-logo-wrap">
+                  <View className="auth-logo-mark">
+                    <Text className="auth-logo-mark-text">R</Text>
+                  </View>
+                  <View>
+                    <Text className="auth-wordmark">Recurrly</Text>
+                    <Text className="auth-wordmark-sub">SUBSCRIPTIONS</Text>
+                  </View>
+                </View>
+                <Text className="auth-title">Verify with 2FA</Text>
+                <Text className="auth-subtitle">
+                  {totpFactor
+                    ? "Enter the code from your authenticator app"
+                    : "Enter the verification code sent to your email"}
+                </Text>
+              </View>
+
+              {/* MFA Form */}
+              <View className="auth-card">
+                <View className="auth-form">
+                  <View className="auth-field">
+                    <Text className="auth-label">
+                      {totpFactor ? "Authenticator Code" : "Verification Code"}
+                    </Text>
+                    <TextInput
+                      className="auth-input"
+                      value={mfaCode}
+                      placeholder={
+                        totpFactor ? "Enter 6-digit code" : "Enter code"
+                      }
+                      placeholderTextColor="rgba(0, 0, 0, 0.4)"
+                      onChangeText={setMfaCode}
+                      onBlur={() => setMfaCodeTouched(true)}
+                      keyboardType="number-pad"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                    />
+                    {errors.fields.code && (
+                      <Text className="auth-error">
+                        {errors.fields.code.message}
+                      </Text>
+                    )}
+                  </View>
+
+                  <Pressable
+                    className={`auth-button ${(!mfaCode || fetchStatus === "fetching") && "auth-button-disabled"}`}
+                    onPress={handleMFAVerify}
+                    disabled={!mfaCode || fetchStatus === "fetching"}
+                  >
+                    <Text className="auth-button-text">
+                      {fetchStatus === "fetching" ? "Verifying..." : "Verify"}
+                    </Text>
+                  </Pressable>
+
+                  {emailFactor && !totpFactor && (
+                    <Pressable
+                      className="auth-secondary-button"
+                      onPress={() => signIn.mfa.sendEmailCode()}
+                      disabled={fetchStatus === "fetching"}
+                    >
+                      <Text className="auth-secondary-button-text">
+                        Resend Code
+                      </Text>
+                    </Pressable>
+                  )}
+
+                  <Pressable
+                    className="auth-secondary-button"
+                    onPress={() => signIn.reset()}
+                    disabled={fetchStatus === "fetching"}
+                  >
+                    <Text className="auth-secondary-button-text">
+                      Start Over
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    );
+  }
 
   // Show verification screen if client trust is needed
   if (signIn.status === "needs_client_trust") {
