@@ -12,7 +12,7 @@ import { useSignUp, useAuth } from "@clerk/expo";
 import { useState } from "react";
 import { SafeAreaView as RNSafeAreaView } from "react-native-safe-area-context";
 import { styled } from "nativewind";
-// import { usePostHog } from 'posthog-react-native';
+import { usePostHog } from 'posthog-react-native';
 
 const SafeAreaView = styled(RNSafeAreaView);
 
@@ -20,7 +20,7 @@ const SignUp = () => {
   const { signUp, errors, fetchStatus } = useSignUp();
   const { isSignedIn } = useAuth();
   const router = useRouter();
-  // const posthog = usePostHog();
+  const posthog = usePostHog();
 
   const [emailAddress, setEmailAddress] = useState("");
   const [password, setPassword] = useState("");
@@ -48,9 +48,7 @@ const SignUp = () => {
 
     if (error) {
       console.error(JSON.stringify(error, null, 2));
-      // posthog.capture('user_sign_up_failed', {
-      //     error_message: error.message,
-      // });
+      posthog.capture('user_sign_up_failed');
       return;
     }
 
@@ -73,11 +71,11 @@ const SignUp = () => {
             return;
           }
 
-          // posthog.identify(emailAddress, {
-          //     $set: { email: emailAddress },
-          //     $set_once: { sign_up_date: new Date().toISOString() },
-          // });
-          // posthog.capture('user_signed_up', { email: emailAddress });
+          posthog.identify(emailAddress, {
+            $set: { email: emailAddress },
+            $set_once: { sign_up_date: new Date().toISOString() },
+          });
+          posthog.capture('user_signed_up');
 
           const url = decorateUrl("/(tabs)");
           if (url.startsWith("http")) {
