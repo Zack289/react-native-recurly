@@ -2,12 +2,10 @@ import "@/global.css";
 import { Text, View, Image, FlatList } from "react-native";
 import { styled } from "nativewind";
 import { SafeAreaView as RNSafeAreaView } from "react-native-safe-area-context";
-import { Link } from "expo-router";
 import images from "@/constants/images";
 import {
   HOME_BALANCE,
   HOME_SUBSCRIPTIONS,
-  HOME_USER,
   UPCOMING_SUBSCRIPTIONS,
 } from "@/constants/data";
 import { icons } from "@/constants/icons";
@@ -18,10 +16,12 @@ import UpcomingSubscriptionCard from "@/components/UpcomingSubscriptionCard";
 import SubscriptionCard from "@/components/SubscriptionCard";
 import { useState } from "react";
 import { useUser } from "@clerk/expo";
+import { usePostHog } from "posthog-react-native";
 
 const SafeAreaView = styled(RNSafeAreaView);
 export default function App() {
   const { user } = useUser();
+  const posthog = usePostHog();
   const [expandedSubscriptionId, setExpandedSubscriptionId] = useState<
     string | null
   >(null);
@@ -107,11 +107,19 @@ export default function App() {
           <SubscriptionCard
             {...item}
             expanded={expandedSubscriptionId === item.id}
-            onPress={() =>
+            onPress={() => {
+              const isExpanding = expandedSubscriptionId !== item.id;
               setExpandedSubscriptionId((currentId) =>
                 currentId === item.id ? null : item.id,
-              )
-            }
+              );
+              if (isExpanding) {
+                posthog.capture('subscription_expanded', {
+                  subscription_name: item.name,
+                  billing: item.billing,
+                  category: item.category,
+                });
+              }
+            }}
           />
         )}
         extraData={expandedSubscriptionId}
