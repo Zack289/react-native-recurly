@@ -126,6 +126,7 @@ export default function App() {
                 onClose={() => setIsModalVisible(false)}
                 onSubmit={handleCreateSubscription}
             />
+            
         </SafeAreaView>
     );
 }
